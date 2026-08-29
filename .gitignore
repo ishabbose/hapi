@@ -1,0 +1,9 @@
+data/
+archive/
+__pycache__/
+*.pyc
+.DS_Store
+*.pt
+*.npy
+*.zip
+.venv/
