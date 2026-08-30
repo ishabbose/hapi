@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _bootstrap import common_parser
 
 from hapi.config import (
+    LIDC_XML_ZIP,
     ORIGINAL_ZIP,
     SUBSET_ZIP,
     TCIA_MANIFEST,
@@ -21,6 +22,7 @@ def main() -> None:
     print("TCIA manifest:", TCIA_MANIFEST, "exists=", TCIA_MANIFEST.exists())
     print("Subset ZIP:   ", SUBSET_ZIP, "exists=", SUBSET_ZIP.exists())
     print("Original ZIP: ", ORIGINAL_ZIP, "exists=", ORIGINAL_ZIP.exists())
+    print("LIDC XML ZIP: ", LIDC_XML_ZIP, "exists=", LIDC_XML_ZIP.exists())
     if not TCIA_MANIFEST.exists():
         raise SystemExit(
             "Place TCIA_LIDC-IDRI_20200921.tcia under content/ (already in repo)."

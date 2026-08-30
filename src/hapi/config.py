@@ -31,7 +31,9 @@ TCIA_MANIFEST = Path(
 LIDC_XML_ZIP_URL = (
     "https://wiki.cancerimagingarchive.net/download/attachments/1966254/LIDC-XML-only.zip"
 )
-LIDC_XML_ZIP = DATA_DIR / "LIDC-XML-only.zip"
+LIDC_XML_ZIP = Path(
+    os.environ.get("HAPI_LIDC_XML_ZIP", CONTENT_DIR / "LIDC-XML-only.zip")
+)
 LIDC_XML_DIR = DATA_DIR / "lidc_xml_annotations"
 
 TCIA_GET_SERIES_URL = (

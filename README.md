@@ -25,8 +25,9 @@ Place these files in `content/` (or point at them with environment variables):
 | `TCIA_LIDC-IDRI_20200921.tcia` | TCIA series manifest (already in the repo; 1,308 SeriesInstanceUIDs) |
 | `kaggle_dataset_2000.zip` | Flattened ~2,000-image subset (`nodule_001/slice-0.png`, …) |
 | `kagl_lidc_idri.zip` | Native LIDC crops with `images/` and `mask-0` … `mask-3` |
+| `LIDC-XML-only.zip` | Official LIDC-IDRI XML annotations from TCIA wiki |
 
-Official LIDC XML annotations are downloaded in step 03 from TCIA wiki (`LIDC-XML-only.zip`).
+Step 03 uses `content/LIDC-XML-only.zip` if present; otherwise it downloads that archive from the TCIA wiki.
 
 Cohort used for modeling:
 
@@ -104,6 +105,7 @@ Optional overrides (see `src/hapi/config.py`):
 | `HAPI_SUBSET_ZIP` | `content/kaggle_dataset_2000.zip` |
 | `HAPI_ORIGINAL_ZIP` | `content/kagl_lidc_idri.zip` |
 | `HAPI_TCIA_MANIFEST` | `content/TCIA_LIDC-IDRI_20200921.tcia` |
+| `HAPI_LIDC_XML_ZIP` | `content/LIDC-XML-only.zip` |
 
 ## Library (`src/hapi`)
 
