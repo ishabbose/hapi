@@ -18,9 +18,24 @@ def natural_sort_key(filename: str):
     return int(numbers[-1]) if numbers else filename
 
 
+def volume_id_for_path(path: Path) -> str:
+    for part in reversed(path.parts):
+        nodule_match = re.search(r"(nodule_\d+)", part, re.IGNORECASE)
+        if nodule_match:
+            return nodule_match.group(1).lower()
+    return path.name.lower()
+
+
+def _is_mask_dir(dir_path: Path) -> bool:
+    return any(part.lower().startswith("mask") for part in dir_path.parts)
+
+
 def discover_volumes(root_dir: Path) -> dict[str, list[str]]:
     volumes: dict[str, list[str]] = {}
     for current_root, dirs, files_in_dir in os_walk_safe(root_dir):
+        root = Path(current_root)
+        if _is_mask_dir(root):
+            continue
         png_files = [
             f
             for f in files_in_dir
@@ -28,15 +43,13 @@ def discover_volumes(root_dir: Path) -> dict[str, list[str]]:
         ]
         if not png_files:
             continue
-        folder_name = Path(current_root).name
-        nodule_match = re.search(r"(nodule_\d+)", folder_name, re.IGNORECASE)
-        vol_id = nodule_match.group(1).lower() if nodule_match else folder_name.lower()
+        vol_id = volume_id_for_path(root)
         if vol_id in volumes:
             raise RuntimeError(
                 f"Duplicate volume ID '{vol_id}' at {current_root} and {volumes[vol_id][0]}"
             )
         png_files.sort(key=natural_sort_key)
-        volumes[vol_id] = [str(Path(current_root) / f) for f in png_files]
+        volumes[vol_id] = [str(root / f) for f in png_files]
     return volumes
 
 
@@ -129,6 +142,20 @@ class BaselineCTDataset(Dataset):
         image_files = self.volume_dict[vol_id]
         if not image_files:
             raise RuntimeError(f"Volume '{vol_id}' has zero slices.")
+
+        if len(image_files) == 1 and image_files[0].lower().endswith(".npy"):
+            array = np.load(image_files[0])
+            if array.ndim != 3:
+                raise RuntimeError(f"Expected DHW volume in {image_files[0]}, got {array.shape}")
+            volume = torch.tensor(array, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+            volume = nn.functional.interpolate(
+                volume,
+                size=(self.target_depth, self.target_size[0], self.target_size[1]),
+                mode="trilinear",
+                align_corners=False,
+            ).squeeze(0)
+            volume = (volume - volume.min()) / (volume.max() - volume.min() + 1e-8)
+            return volume
 
         slices = []
         for img_path in image_files:

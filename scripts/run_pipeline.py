@@ -25,24 +25,33 @@ STEPS = [
     "12_normalize_volumes.py",
     "13_train_3d_autoencoder.py",
     "14_train_2d_unet.py",
+    "15_attach_tcia_manifest.py",
+    "16_run_inference.py",
+    "17_improve_processed_v2.py",
+    "18_filter_kaggle_to_v2_cohort.py",
 ]
+
+TRAIN_SCRIPTS = frozenset(
+    {
+        "13_train_3d_autoencoder.py",
+        "14_train_2d_unet.py",
+    }
+)
 
 
 def main() -> None:
     parser = common_parser("Run numbered pipeline scripts in order")
-    parser.add_argument("--from-step", type=int, default=1, help="First step number (1–14)")
-    parser.add_argument("--to-step", type=int, default=14, help="Last step number (1–14)")
+    parser.add_argument("--from-step", type=int, default=1, help="First step number (1–18)")
+    parser.add_argument("--to-step", type=int, default=15, help="Last step number (1–18)")
     parser.add_argument(
         "--skip-train",
         action="store_true",
-        help="Stop after step 12 (no autoencoder / U-Net training).",
+        help="Skip autoencoder / U-Net training (steps 13–14).",
     )
     args = parser.parse_args()
 
     start = max(1, args.from_step)
-    end = min(14, args.to_step)
-    if args.skip_train:
-        end = min(end, 12)
+    end = min(len(STEPS), args.to_step)
 
     extra = ["--force"] if args.force else []
     for i in range(start, end + 1):
@@ -50,6 +59,9 @@ def main() -> None:
         print("\n" + "=" * 72)
         print(f"RUNNING STEP {i:02d}: {script.name}")
         print("=" * 72)
+        if args.skip_train and script.name in TRAIN_SCRIPTS:
+            print(f"Skipping training step {i:02d}: {script.name}")
+            continue
         cmd = [sys.executable, str(script), *extra]
         result = subprocess.run(cmd, cwd=str(SCRIPTS_DIR.parent))
         if result.returncode != 0:

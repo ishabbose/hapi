@@ -12,11 +12,18 @@ DATA_DIR = Path(os.environ.get("HAPI_DATA_DIR", PROJECT_ROOT / "data"))
 ARTIFACTS_DIR = DATA_DIR / "artifacts"
 EXTRACTED_DIR = DATA_DIR / "extracted"
 PROCESSED_DIR = DATA_DIR / "processed_325_nodules"
+IMPROVED_PROCESSED_DIR = DATA_DIR / "processed_325_nodules_v2"
 MODEL_READY_DIR = DATA_DIR / "model_ready_325_nodules"
 CHECKPOINTS_DIR = DATA_DIR / "checkpoints"
 
 SUBSET_ZIP = Path(
     os.environ.get("HAPI_SUBSET_ZIP", CONTENT_DIR / "kaggle_dataset_2000.zip")
+)
+SUBSET_ZIP_ORIGINAL = Path(
+    os.environ.get(
+        "HAPI_SUBSET_ZIP_ORIGINAL",
+        CONTENT_DIR / "kaggle_dataset_2000_original.zip",
+    )
 )
 ORIGINAL_ZIP = Path(
     os.environ.get("HAPI_ORIGINAL_ZIP", CONTENT_DIR / "kagl_lidc_idri.zip")
@@ -63,6 +70,12 @@ SPLIT_MANIFEST_CSV = ARTIFACTS_DIR / "final_325_patient_split_manifest.csv"
 PATIENT_SPLITS_CSV = ARTIFACTS_DIR / "final_325_patient_splits.csv"
 PROCESSED_MANIFEST_CSV = ARTIFACTS_DIR / "processed_325_manifest.csv"
 PREPROCESS_MANIFEST_CSV = ARTIFACTS_DIR / "final_325_preprocessed_manifest.csv"
+PROCESSED_TCIA_METADATA_CSV = ARTIFACTS_DIR / "processed_325_tcia_metadata.csv"
+KAGGLE_TCIA_METADATA_CSV = ARTIFACTS_DIR / "kaggle_2000_tcia_metadata.csv"
+IMPROVED_MANIFEST_CSV = ARTIFACTS_DIR / "processed_325_v2_manifest.csv"
+IMPROVED_QC_CSV = ARTIFACTS_DIR / "processed_325_v2_qc.csv"
+IMPROVED_PARAMS_JSON = ARTIFACTS_DIR / "processed_325_v2_preprocess_params.json"
+KAGGLE_325_ZIP_CSV = ARTIFACTS_DIR / "kaggle_325_zip_cohort.csv"
 SUBSET_EXTRACT_DIR = EXTRACTED_DIR / "kaggle_dataset_2000"
 
 
@@ -72,6 +85,7 @@ def ensure_dirs() -> None:
         ARTIFACTS_DIR,
         EXTRACTED_DIR,
         PROCESSED_DIR,
+        IMPROVED_PROCESSED_DIR,
         MODEL_READY_DIR,
         CHECKPOINTS_DIR,
     ):

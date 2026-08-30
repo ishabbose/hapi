@@ -12,6 +12,107 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+from hapi.config import SUBSET_EXTRACT_DIR, SUBSET_ZIP
+
+
+def ensure_kaggle_extracted(
+    zip_path: Path | None = None,
+    extract_dir: Path | None = None,
+    refresh_from_zip: bool = False,
+) -> Path:
+    import shutil
+
+    zip_path = zip_path or SUBSET_ZIP
+    extract_dir = extract_dir or SUBSET_EXTRACT_DIR
+    if not zip_path.exists():
+        raise FileNotFoundError(f"Missing Kaggle subset ZIP: {zip_path}")
+    if (
+        not refresh_from_zip
+        and extract_dir.exists()
+        and any(extract_dir.rglob("*.png"))
+    ):
+        return extract_dir
+    if refresh_from_zip and extract_dir.exists():
+        shutil.rmtree(extract_dir)
+    print(f"Extracting {zip_path} to {extract_dir}")
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(extract_dir)
+    return extract_dir
+
+
+def v2_nodule_ids(v2_root: Path) -> set[str]:
+    return {p.parent.name.lower() for p in v2_root.glob("*/image_volume.npy")}
+
+
+def filter_kaggle_zip_to_ids(
+    source_zip: Path,
+    dest_zip: Path,
+    keep_ids: set[str],
+) -> pd.DataFrame:
+    """Copy unprocessed PNG (and sidecar) members for keep_ids into dest_zip."""
+    from hapi.volumes import volume_id_for_path
+
+    keep_ids = {str(i).lower() for i in keep_ids}
+    if not source_zip.exists():
+        raise FileNotFoundError(f"Missing Kaggle ZIP: {source_zip}")
+
+    import tempfile
+    import os
+
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=dest_zip.parent)
+    os.close(tmp_fd)
+    tmp_path = Path(tmp_name)
+    kept_files = 0
+    kept_ids: set[str] = set()
+    dropped_ids: set[str] = set()
+    try:
+        with zipfile.ZipFile(source_zip, "r") as zin, zipfile.ZipFile(
+            tmp_path, "w"
+        ) as zout:
+            for item in zin.infolist():
+                name = item.filename.replace("\\", "/")
+                if name.startswith("__MACOSX") or name.startswith("."):
+                    continue
+                vol_id = volume_id_for_path(Path(name))
+                if not re.match(r"^nodule_\d+$", vol_id, re.IGNORECASE):
+                    continue
+                vol_id = vol_id.lower()
+                if vol_id not in keep_ids:
+                    dropped_ids.add(vol_id)
+                    continue
+                kept_ids.add(vol_id)
+                zout.writestr(item, zin.read(item.filename))
+                if not item.is_dir():
+                    kept_files += 1
+        tmp_path.replace(dest_zip)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
+
+    missing = sorted(keep_ids - kept_ids)
+    if missing:
+        raise RuntimeError(
+            f"Kaggle ZIP is missing v2 nodules: {missing[:20]}"
+            + (" …" if len(missing) > 20 else "")
+        )
+    rows = [
+        {
+            "subset_nodule_id": nid,
+            "kept": True,
+        }
+        for nid in sorted(kept_ids)
+    ]
+    rows.extend(
+        {"subset_nodule_id": nid, "kept": False} for nid in sorted(dropped_ids)
+    )
+    print(
+        f"Wrote {dest_zip}: {len(kept_ids)} nodules kept, "
+        f"{len(dropped_ids)} dropped, {kept_files} files"
+    )
+    return pd.DataFrame(rows)
+
 
 def slice_number(path: str) -> int:
     match = re.search(r"(\d+)\.png$", path.replace("\\", "/"))

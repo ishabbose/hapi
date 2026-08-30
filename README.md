@@ -84,6 +84,10 @@ python scripts/02_match_subset_to_lidc.py --force
 | 12 | `12_normalize_volumes.py` | 1st–99th percentile window → `[0, 1]` `.npy` volumes | `data/model_ready_325_nodules/` |
 | 13 | `13_train_3d_autoencoder.py` | Unsupervised 3D conv autoencoder (MSE reconstruction) | `data/checkpoints/3d_autoencoder.pt` |
 | 14 | `14_train_2d_unet.py` | 2D U-Net on consensus masks | `data/checkpoints/unet2d_consensus.pt` |
+| 15 | `15_attach_tcia_manifest.py` | Attach `.tcia` basket fields + NBIA series row to processed 325 and Kaggle 2000 scans | `data/processed_325_nodules/*/metadata.json`, `content/kaggle_dataset_2000.zip` (`*/metadata.json`), `data/artifacts/processed_325_tcia_metadata.csv`, `data/artifacts/kaggle_2000_tcia_metadata.csv` |
+| 16 | `16_run_inference.py` | Run AE / U-Net on processed v2 and the 325-nodule Kaggle ZIP | `data/artifacts/inference_autoencoder.csv`, `data/artifacts/inference_unet.csv` |
+| 17 | `17_improve_processed_v2.py` | Train-only intensity, foreground crop/pad, consensus+union masks (new v2 dataset) | `data/processed_325_nodules_v2/`, `data/artifacts/processed_325_v2_manifest.csv` |
+| 18 | `18_filter_kaggle_to_v2_cohort.py` | Keep only v2’s 325 unprocessed nodules in `content/kaggle_dataset_2000.zip` | `content/kaggle_dataset_2000.zip`, `content/kaggle_dataset_2000_original.zip`, `data/artifacts/kaggle_325_zip_cohort.csv` |
 
 Step 06 calls the public TCIA API once per series (~1,300 requests). Cache the CSV and do not re-run unless you need a refresh (`--force`).
 
@@ -92,6 +96,11 @@ Training knobs for 13 and 14:
 ```bash
 python scripts/13_train_3d_autoencoder.py --epochs 10 --batch-size 4 --lr 1e-3
 python scripts/14_train_2d_unet.py --epochs 5 --batch-size 8 --lr 1e-3
+python scripts/15_attach_tcia_manifest.py
+python scripts/16_run_inference.py --model both --dataset both
+python scripts/16_run_inference.py --limit 8   # smoke test
+python scripts/17_improve_processed_v2.py
+python scripts/18_filter_kaggle_to_v2_cohort.py
 ```
 
 ## Environment variables
@@ -117,10 +126,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path("src").resolve()))
 
 from hapi.config import TCIA_MANIFEST
-from hapi.tcia import parse_series_uids
+from hapi.tcia import parse_series_uids, parse_tcia_manifest
 ```
 
-Notable modules: `matching`, `tcia`, `xml_annotations`, `extract`, `preprocess`, `volumes`, `datasets`, `models`, `train`.
+Notable modules: `matching`, `tcia`, `xml_annotations`, `extract`, `preprocess`, `improve_processed`, `volumes`, `datasets`, `models`, `train`.
 
 ## Notebooks
 
