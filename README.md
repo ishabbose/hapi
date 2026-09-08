@@ -4,7 +4,32 @@ Pipeline for building a lung-cancer imaging model from **LIDC-IDRI** (The Cancer
 
 The original exploration lives in Colab notebooks under `notebooks/`. Runnable work is split into numbered scripts so each stage can be executed **on its own** and **in order**. Later steps read CSVs and folders produced by earlier ones.
 
-This repo does **not** assign binary cancer labels in the baseline experiments. The 3D model is an unsupervised reconstruction autoencoder. The 2D U-Net predicts reader-consensus nodule masks.
+The original autoencoder and consensus U-Net are retained as exploratory history. The final study is a leakage-safe, patient-grouped comparison for multi-reader segmentation inside supplied candidate-centered nodule ROIs. It does **not** assign cancer labels or claim full-scan nodule detection.
+
+## Final v3.1 study
+
+The final dataset contains 325 candidate volumes from 247 patients and 2,000 axial slices. It preserves raw `uint8` source images, repairs numeric z-order, removes target-derived cropping/recentering, and stores four cumulative support targets:
+
+```text
+T1 = at least one supporting annotation (325 positive cases)
+T2 = at least two supporting annotations (237 positive cases; primary endpoint)
+T3 = at least three supporting annotations (175 positive cases)
+T4 = four supporting annotations         (106 positive cases)
+```
+
+The proposed model is a residual 2.5D U-Net whose four logits are nested by construction. Final comparisons use five patient-disjoint outer folds, a separate validation fold inside every outer run, fold-fitted intensity scaling, all-case training cohorts, validation-only threshold selection, and patient-clustered bootstrap intervals.
+
+Start with the student-facing implementation guide in `docs/ISHA_HANDS_ON_FINISHING_GUIDE.md`. The shortest verified workflow is:
+
+```bash
+python scripts/20_validate_final_v3.py --data-root data/final_325_nodules_v3
+python scripts/23_run_ablation_suite.py --suite smoke
+python scripts/23_run_ablation_suite.py --suite smoke --execute --device cuda --workers 4
+python scripts/23_run_ablation_suite.py --suite full
+python scripts/23_run_ablation_suite.py --suite full --execute --device cuda --workers 4
+```
+
+The suite runner is dry-run by default. Smoke checkpoints remain isolated under `_smoke`; non-smoke suites train, evaluate, aggregate, and export figures only after complete run coverage. Numerical smoke outputs are integration diagnostics, not paper results.
 
 ## Repository layout
 
@@ -47,6 +72,8 @@ pip install -r requirements.txt
 
 Run scripts from the **repository root**.
 
+To run the v3.1 GPU suites on AWS with almost no console clicking, see `scripts/aws/README.md`.
+
 ## Incremental pipeline
 
 Each script writes under `data/`. If the main output already exists, the step **skips** unless you pass `--force`.
@@ -88,6 +115,13 @@ python scripts/02_match_subset_to_lidc.py --force
 | 16 | `16_run_inference.py` | Run AE / U-Net on processed v2 and the 325-nodule Kaggle ZIP | `data/artifacts/inference_autoencoder.csv`, `data/artifacts/inference_unet.csv` |
 | 17 | `17_improve_processed_v2.py` | Train-only intensity, foreground crop/pad, consensus+union masks (new v2 dataset) | `data/processed_325_nodules_v2/`, `data/artifacts/processed_325_v2_manifest.csv` |
 | 18 | `18_filter_kaggle_to_v2_cohort.py` | Keep only v2’s 325 unprocessed nodules in `content/kaggle_dataset_2000.zip` | `content/kaggle_dataset_2000.zip`, `content/kaggle_dataset_2000_original.zip`, `data/artifacts/kaggle_325_zip_cohort.csv` |
+| 19 | `19_build_final_v3.py` | Rebuild target-independent raw volumes and T1–T4 reader-support targets | `data/final_325_nodules_v3/` |
+| 20 | `20_validate_final_v3.py` | Validate all arrays, target identities, paths, hashes, and patient folds | `data/final_325_nodules_v3/validation_report.json` |
+| 21 | `21_train_agreement_model.py` | Train one variant/seed/outer fold with validation-only selection | `results/final_agreement/<variant>/seed_<seed>/fold_<fold>/` |
+| 22 | `22_evaluate_agreement_model.py` | Evaluate one frozen checkpoint on its outer test fold | Per-case metrics and held-out predictions in the run directory |
+| 23 | `23_run_ablation_suite.py` | Dry-run or execute smoke, screening, confirmatory, and full suites | Complete experiment tree and aggregate outputs |
+| 24 | `24_aggregate_final_results.py` | Fail-closed OOF validation, patient bootstrap, paired comparisons, and paper tables | `results/final_agreement/aggregates/<suite>/` |
+| 25 | `25_export_paper_figures.py` | Export data-backed 600-dpi PNG/PDF figures and source manifest | `paper_figures/` under the aggregate directory |
 
 Step 06 calls the public TCIA API once per series (~1,300 requests). Cache the CSV and do not re-run unless you need a refresh (`--force`).
 
