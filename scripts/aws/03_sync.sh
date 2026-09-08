@@ -1,26 +1,18 @@
 #!/usr/bin/env bash
-# Copy the repo and v3.1 dataset to the GPU instance.
+# Copy the repo and v3.1 dataset to every GPU instance in the fleet.
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 need_cmd rsync
-require_instance
-refresh_public_ip
+instance_id_list
+print_mode_banner
 
-echo "==> rsync to $SSH_USER@$PUBLIC_IP:~/hapi"
-rsync -az --delete --partial --progress \
-  -e "ssh -i $KEY_PATH -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes" \
-  --exclude '.git/' \
-  --exclude '.venv/' \
-  --exclude 'results/' \
-  --exclude 'archive/' \
-  --exclude '__pycache__/' \
-  --exclude '*.pyc' \
-  --exclude '.DS_Store' \
-  --exclude '*.zip' \
-  --exclude 'scripts/aws/.env' \
-  --exclude 'scripts/aws/.state' \
-  "$REPO_ROOT/" "${SSH_USER}@${PUBLIC_IP}:hapi/"
+idx=0
+for _id in "${INSTANCE_ID_ARR[@]}"; do
+  echo "==> rsync worker $idx"
+  rsync_to_index "$idx"
+  idx=$((idx + 1))
+done
 
-echo "Sync complete. Next: scripts/aws/04_remote_setup.sh"
+echo "Sync complete. Next: ./scripts/aws/04_remote_setup.sh"

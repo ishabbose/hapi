@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-# Check local tools, AWS credentials, GPU quota, and a spending alarm.
+# Check local tools, AWS credentials, GPU quota for the selected MODE, and a spending alarm.
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+take_mode_arg "${1:-}" || true
 
 need_cmd aws
 need_cmd ssh
 need_cmd rsync
 need_cmd curl
 need_cmd python3
+
+print_mode_banner
+echo
+echo "Modes (pick with MODE= in scripts/aws/.env or pass cheap|parallel9|single8):"
+echo "  cheap      1x g4dn.xlarge     ~\$0.53/h   sequential full suite (slowest, cheapest hourly)"
+echo "  parallel9  9x g5.xlarge       ~\$9.05/h   fastest wall-clock (one variant per VM)"
+echo "  single8    1x g5.48xlarge     ~\$16.29/h  8 GPUs on one box"
+echo
 
 echo "==> AWS identity"
 aws sts get-caller-identity
@@ -27,9 +36,8 @@ if [[ ! -f "$DATA_ROOT/final_325_manifest.csv" ]]; then
 fi
 echo "==> Local v3.1 dataset found"
 
-# G and VT On-Demand vCPUs (needed for g4dn/g5).
 QUOTA_CODE="L-DB2E81BA"
-echo "==> GPU On-Demand quota ($QUOTA_CODE)"
+echo "==> GPU On-Demand G/VT vCPU quota ($QUOTA_CODE); this mode needs >= $MIN_VCPU_QUOTA"
 quota_value="$(aws service-quotas get-service-quota \
   --service-code ec2 \
   --quota-code "$QUOTA_CODE" \
@@ -38,20 +46,20 @@ quota_value="$(aws service-quotas get-service-quota \
 
 if [[ -z "$quota_value" || "$quota_value" == "None" ]]; then
   echo "Could not read quota (IAM may lack service-quotas). Launch may still work."
-elif awk "BEGIN {exit !($quota_value < 4)}"; then
-  echo "Current G/VT On-Demand vCPU quota is $quota_value (need at least 4 for $INSTANCE_TYPE)."
+elif awk "BEGIN {exit !($quota_value < $MIN_VCPU_QUOTA)}"; then
+  echo "Current G/VT On-Demand vCPU quota is $quota_value (need at least $MIN_VCPU_QUOTA for MODE=$MODE)."
   if [[ "$REQUEST_GPU_QUOTA" == "1" ]]; then
-    echo "Requesting quota increase to 8 vCPUs..."
+    echo "Requesting quota increase to $QUOTA_REQUEST vCPUs..."
     aws service-quotas request-service-quota-increase \
       --service-code ec2 \
       --quota-code "$QUOTA_CODE" \
-      --desired-value 8 \
+      --desired-value "$QUOTA_REQUEST" \
       >/dev/null && echo "Quota request submitted. AWS may take hours and can email you."
   else
     echo "Set REQUEST_GPU_QUOTA=1 in scripts/aws/.env or request it in Service Quotas."
   fi
 else
-  echo "Quota is $quota_value vCPUs — enough to launch $INSTANCE_TYPE."
+  echo "Quota is $quota_value vCPUs — enough for MODE=$MODE."
 fi
 
 echo "==> Monthly budget alarm (\$$BUDGET_LIMIT)"
@@ -59,7 +67,6 @@ acct="$(account_id)"
 if aws budgets describe-budget --account-id "$acct" --budget-name hapi-monthly-cap >/dev/null 2>&1; then
   echo "Budget hapi-monthly-cap already exists."
 else
-  email="$(aws sts get-caller-identity --query Arn --output text)"
   tmp="$(mktemp)"
   cat >"$tmp" <<EOF
 {
@@ -69,28 +76,14 @@ else
   "BudgetType": "COST"
 }
 EOF
-  notify="$(mktemp)"
-  cat >"$notify" <<EOF
-[
-  {
-    "Notification": {
-      "NotificationType": "ACTUAL",
-      "ComparisonOperator": "GREATER_THAN",
-      "Threshold": 80,
-      "ThresholdType": "PERCENTAGE"
-    },
-    "Subscribers": []
-  }
-]
-EOF
   if aws budgets create-budget --account-id "$acct" --budget "file://$tmp" >/dev/null 2>&1; then
     echo "Created cost budget hapi-monthly-cap at \$$BUDGET_LIMIT / month."
     echo "Add an email subscriber in Budgets if you want a mail alert (one console visit)."
   else
     echo "Could not create a budget (missing budgets permission). Watch the billing dashboard."
   fi
-  rm -f "$tmp" "$notify"
+  rm -f "$tmp"
 fi
 
 echo
-echo "Local checks passed. Next: scripts/aws/02_launch_gpu.sh"
+echo "Local checks passed. Next: ./scripts/aws/02_launch_gpu.sh $MODE"

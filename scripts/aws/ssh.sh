@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Interactive SSH into the GPU instance (repo is ~/hapi).
+# Interactive SSH. Usage: ./scripts/aws/ssh.sh [worker_index]
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
-require_instance
-refresh_public_ip
-exec ssh -i "$KEY_PATH" \
-  -o StrictHostKeyChecking=accept-new \
-  -o IdentitiesOnly=yes \
-  -o ServerAliveInterval=30 \
-  "${SSH_USER}@${PUBLIC_IP}" "$@"
+instance_id_list
+idx=0
+if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+  idx="$1"
+  shift
+fi
+ip="$(ip_for_index "$idx")"
+echo "Connecting to worker $idx ($ip)"
+exec ssh $(ssh_opts) "${SSH_USER}@${ip}" "$@"

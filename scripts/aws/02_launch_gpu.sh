@@ -1,27 +1,54 @@
 #!/usr/bin/env bash
-# Create SSH key + security group and launch a CUDA GPU instance.
+# Create SSH key + security group and launch GPU instances for MODE.
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+take_mode_arg "${1:-}" || true
 
 need_cmd aws
 need_cmd curl
 
-load_state
+WANTED_MODE="$MODE"
+print_mode_banner
 
-if [[ -n "${INSTANCE_ID:-}" ]]; then
-  state="$(aws ec2 describe-instances \
-    --instance-ids "$INSTANCE_ID" \
+load_state
+SAVED_MODE="${MODE:-}"
+SAVED_IDS="${INSTANCE_IDS:-${INSTANCE_ID:-}}"
+MODE="$WANTED_MODE"
+apply_runtime_mode
+
+if [[ -n "$SAVED_IDS" ]]; then
+  # shellcheck disable=SC2206
+  check_ids=($SAVED_IDS)
+  first_state="$(aws ec2 describe-instances \
+    --instance-ids "${check_ids[0]}" \
     --query 'Reservations[0].Instances[0].State.Name' \
     --output text 2>/dev/null || echo missing)"
-  if [[ "$state" == "running" || "$state" == "pending" || "$state" == "stopped" || "$state" == "stopping" ]]; then
-    echo "Reusing existing instance $INSTANCE_ID (state=$state)."
-    if [[ "$state" == "stopped" ]]; then
-      aws ec2 start-instances --instance-ids "$INSTANCE_ID" >/dev/null
-      aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+  if [[ "$first_state" != "missing" && "$first_state" != "terminated" && "$first_state" != "shutting-down" ]]; then
+    if [[ -n "$SAVED_MODE" && "$SAVED_MODE" != "$WANTED_MODE" ]]; then
+      echo "Existing fleet is MODE=$SAVED_MODE ($SAVED_IDS)." >&2
+      echo "Terminate it with ./scripts/aws/07_terminate.sh before launching MODE=$WANTED_MODE." >&2
+      exit 1
     fi
-    refresh_public_ip
-    echo "SSH: ssh -i $KEY_PATH $SSH_USER@$PUBLIC_IP"
+    echo "Reusing ${#check_ids[@]} instance(s) (state=$first_state)."
+    INSTANCE_IDS="$SAVED_IDS"
+    INSTANCE_ID="${check_ids[0]}"
+    running=()
+    stopped=()
+    for id in "${check_ids[@]}"; do
+      st="$(aws ec2 describe-instances --instance-ids "$id" --query 'Reservations[0].Instances[0].State.Name' --output text)"
+      case "$st" in
+        stopped|stopping) stopped+=("$id") ;;
+        running|pending) running+=("$id") ;;
+        *) echo "Instance $id is $st; will not reuse." >&2; exit 1 ;;
+      esac
+    done
+    if [[ ${#stopped[@]} -gt 0 ]]; then
+      aws ec2 start-instances --instance-ids "${stopped[@]}" >/dev/null
+    fi
+    aws ec2 wait instance-running --instance-ids "${check_ids[@]}"
+    refresh_public_ips
+    echo "SSH worker 0: ./scripts/aws/ssh.sh 0"
     exit 0
   fi
 fi
@@ -99,29 +126,45 @@ ami_name="$(aws ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].Nam
 root_dev="$(aws ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].RootDeviceName' --output text)"
 echo "==> AMI $AMI_ID ($ami_name)"
 
-echo "==> Launching $INSTANCE_TYPE"
-INSTANCE_ID="$(aws ec2 run-instances \
+echo "==> Launching $INSTANCE_COUNT x $INSTANCE_TYPE"
+id_blob="$(aws ec2 run-instances \
   --image-id "$AMI_ID" \
   --instance-type "$INSTANCE_TYPE" \
   --key-name "$KEY_NAME" \
   --security-group-ids "$SG_ID" \
   --block-device-mappings "DeviceName=${root_dev},Ebs={VolumeSize=${VOLUME_GB},VolumeType=gp3,DeleteOnTermination=true}" \
   --metadata-options "HttpTokens=required,HttpPutResponseHopLimit=2" \
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NAME}},{Key=Project,Value=hapi}]" \
-  --count 1 \
-  --query 'Instances[0].InstanceId' \
+  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=${NAME}-${MODE}},{Key=Project,Value=hapi},{Key=HapiMode,Value=${MODE}}]" \
+  --count "$INSTANCE_COUNT" \
+  --query 'Instances[*].InstanceId' \
   --output text)"
+# shellcheck disable=SC2206
+launched=($id_blob)
 
-echo "Instance $INSTANCE_ID launching..."
+if [[ ${#launched[@]} -ne $INSTANCE_COUNT ]]; then
+  echo "Expected $INSTANCE_COUNT instance ids, got: ${launched[*]:-none}" >&2
+  exit 1
+fi
+
+INSTANCE_IDS="${launched[*]}"
+INSTANCE_ID="${launched[0]}"
 save_state
-aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
-aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
-refresh_public_ip
+
+index=0
+for id in "${launched[@]}"; do
+  aws ec2 create-tags --resources "$id" --tags "Key=Name,Value=${NAME}-${MODE}-${index}" >/dev/null
+  index=$((index + 1))
+done
+
+echo "Waiting for ${#launched[@]} instance(s)..."
+aws ec2 wait instance-running --instance-ids "${launched[@]}"
+aws ec2 wait instance-status-ok --instance-ids "${launched[@]}"
+refresh_public_ips
 
 echo
-echo "Ready."
-echo "  Instance: $INSTANCE_ID"
-echo "  IP:       $PUBLIC_IP"
-echo "  SSH:      ssh -i $KEY_PATH $SSH_USER@$PUBLIC_IP"
+echo "Ready (MODE=$MODE)."
+echo "  Instances: $INSTANCE_IDS"
+echo "  IPs:       $PUBLIC_IPS"
+echo "  SSH:       ./scripts/aws/ssh.sh 0"
 echo
-echo "Next: scripts/aws/03_sync.sh"
+echo "Next: ./scripts/aws/03_sync.sh"

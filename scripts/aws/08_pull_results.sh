@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Copy results/ from the GPU instance back to this laptop.
+# Copy results/ from every GPU instance back to this laptop (merged).
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
 need_cmd rsync
-require_instance
-refresh_public_ip
+instance_id_list
 mkdir -p "$REPO_ROOT/results"
-rsync -az --partial --progress \
-  -e "ssh -i $KEY_PATH -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes" \
-  "${SSH_USER}@${PUBLIC_IP}:hapi/results/" "$REPO_ROOT/results/"
-echo "Results copied to $REPO_ROOT/results"
+idx=0
+for _id in "${INSTANCE_ID_ARR[@]}"; do
+  ip="$(ip_for_index "$idx")"
+  echo "==> pull worker $idx ($ip)"
+  rsync -az --partial --progress \
+    -e "ssh $(ssh_opts)" \
+    "${SSH_USER}@${ip}:hapi/results/" "$REPO_ROOT/results/"
+  idx=$((idx + 1))
+done
+echo "Results merged into $REPO_ROOT/results"
