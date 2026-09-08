@@ -72,6 +72,8 @@ pip install -r requirements.txt
 
 Run scripts from the **repository root**.
 
+To run the v3.1 GPU suites on AWS with almost no console clicking, see `scripts/aws/README.md`.
+
 ## Incremental pipeline
 
 Each script writes under `data/`. If the main output already exists, the step **skips** unless you pass `--force`.
